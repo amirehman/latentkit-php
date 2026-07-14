@@ -6,6 +6,15 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.1.0-beta.3 - 2026-07-14
+
+### Fixed
+
+- Treat a returned route `models` list as available route detail even when an
+  older or transitional gateway omits the redundant `model_count` field.
+- Derive `RouteSummary::$modelCount` from the parsed models in that compatibility
+  case instead of reporting an unavailable or zero-model route.
+
 ## 0.1.0-beta.2 - 2026-07-14
 
 ### Added

@@ -152,6 +152,36 @@ $test('me typed context preserves nullable and legacy route states', static func
     $assertSame(null, $context->latestRequest);
 });
 
+$test('me typed context derives model count when models are present', static function () use (
+    $assertSame,
+    $jsonResponse
+): void {
+    $transport = new MockTransport();
+    $transport->push($jsonResponse([
+        'policy' => [
+            'id' => 'policy-1',
+            'name' => 'Compatible Route',
+            'models' => [
+                [
+                    'rank' => 1,
+                    'active' => true,
+                    'provider' => 'openai',
+                    'model' => 'gpt-4.1-mini',
+                    'model_id' => 'model-1',
+                    'capabilities' => ['chat'],
+                ],
+            ],
+        ],
+    ]));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+
+    $context = $client->me->retrieveContext();
+
+    $assertSame(true, $context->route?->detailsAvailable);
+    $assertSame(1, $context->route?->modelCount);
+    $assertSame('gpt-4.1-mini', $context->route?->models[0]->model);
+});
+
 $test('missing key and invalid options fail before transport', static function () use ($assertThrows): void {
     $previousKey = getenv('LATENTKIT_API_KEY');
     putenv('LATENTKIT_API_KEY');

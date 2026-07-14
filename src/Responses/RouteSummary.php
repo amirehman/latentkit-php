@@ -23,14 +23,19 @@ final class RouteSummary
     public static function fromArray(array $data): self
     {
         $models = [];
-        if (is_array($data['models'] ?? null)) {
-            foreach ($data['models'] as $model) {
+        $modelsValue = $data['models'] ?? null;
+        $detailsAvailable = is_array($modelsValue);
+        if ($detailsAvailable) {
+            foreach ($modelsValue as $model) {
                 if (is_array($model)) {
                     $models[] = RouteModelSummary::fromArray($model);
                 }
             }
         }
         $strategy = $data['strategy'] ?? null;
+        $modelCount = isset($data['model_count'])
+            ? (int) $data['model_count']
+            : ($detailsAvailable ? count($models) : null);
 
         return new self(
             id: (string) ($data['id'] ?? ''),
@@ -38,9 +43,9 @@ final class RouteSummary
             strategy: is_string($strategy) && $strategy !== '' ? $strategy : null,
             published: array_key_exists('published', $data) ? (bool) $data['published'] : null,
             version: isset($data['version']) ? (int) $data['version'] : null,
-            modelCount: isset($data['model_count']) ? (int) $data['model_count'] : null,
+            modelCount: $modelCount,
             models: $models,
-            detailsAvailable: array_key_exists('model_count', $data) && is_array($data['models'] ?? null),
+            detailsAvailable: $detailsAvailable,
         );
     }
 }

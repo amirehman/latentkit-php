@@ -9,7 +9,7 @@ The application sends the task. The API key's assigned published route selects t
 Install the current beta from [Packagist](https://packagist.org/packages/latentkit/latentkit-php):
 
 ```bash
-composer require latentkit/latentkit-php:0.1.0-beta.2
+composer require latentkit/latentkit-php:0.1.0-beta.3
 ```
 
 For repository development, run `composer install` inside `sdk/php` and load `vendor/autoload.php`.
@@ -86,6 +86,10 @@ echo $context->latestRequest?->model;
 The latest request reports the model that won that request. It is not a fixed
 model: the assigned route can choose another eligible model or use a fallback
 on the next call. Runtime SDK credentials cannot change the route.
+
+When a compatible gateway returns the ordered `models` list without a separate
+`model_count`, the typed context derives the count from the returned models.
+This avoids presenting a populated route as unavailable or empty.
 
 `$client->me->retrieve()` remains available when raw associative arrays are
 preferred.
