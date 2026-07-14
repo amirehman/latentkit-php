@@ -6,6 +6,22 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.1.0-beta.2 - 2026-07-14
+
+### Added
+
+- Typed, null-safe `/v1/me` connection, route, ordered-model, credit, and
+  latest-request response objects through `me->retrieveContext()`.
+- Shared five-model route fixtures that verify the PHP, Python, and JavaScript
+  SDKs interpret the same gateway response contract.
+
+### Preserved
+
+- `me->retrieve()` continues to return the original associative array for
+  backward compatibility.
+- Runtime SDK credentials remain read-only for routing; route changes stay in
+  the LatentKit control plane.
+
 ## 0.1.0-beta.1 - 2026-07-14
 
 ### Added

@@ -9,7 +9,7 @@ The application sends the task. The API key's assigned published route selects t
 Install the current beta from [Packagist](https://packagist.org/packages/latentkit/latentkit-php):
 
 ```bash
-composer require latentkit/latentkit-php:0.1.0-beta.1
+composer require latentkit/latentkit-php:0.1.0-beta.2
 ```
 
 For repository development, run `composer install` inside `sdk/php` and load `vendor/autoload.php`.
@@ -64,10 +64,36 @@ $client = new LatentKit(
 
 Keep the client and API key in server-side PHP. Never render the raw key into HTML or JavaScript.
 
+## Inspect the connected route
+
+Use the typed context when an integration needs connection, route, model, or
+recent request status:
+
+```php
+$context = $client->me->retrieveContext();
+
+echo $context->app?->name;
+echo $context->route?->name;
+echo $context->route?->modelCount;
+
+foreach ($context->route?->models ?? [] as $model) {
+    echo $model->rank . ': ' . $model->provider . ' / ' . $model->model;
+}
+
+echo $context->latestRequest?->model;
+```
+
+The latest request reports the model that won that request. It is not a fixed
+model: the assigned route can choose another eligible model or use a fallback
+on the next call. Runtime SDK credentials cannot change the route.
+
+`$client->me->retrieve()` remains available when raw associative arrays are
+preferred.
+
 ## Supported resources in 0.1
 
 ```php
-$client->me->retrieve();
+$client->me->retrieveContext();
 
 $client->chat->create(
     messages: [['role' => 'user', 'content' => 'Hello']],

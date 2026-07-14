@@ -102,6 +102,56 @@ $test('environment values are used when explicit values are absent', static func
     }
 });
 
+$test('me typed context parses the shared five-model route fixture', static function () use (
+    $assertSame,
+    $jsonResponse
+): void {
+    $fixture = json_decode(
+        (string) file_get_contents(__DIR__ . '/fixtures/me-context.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+    $transport = new MockTransport();
+    $transport->push($jsonResponse($fixture));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+
+    $context = $client->me->retrieveContext();
+
+    $assertSame('WordPress Connector', $context->app?->name);
+    $assertSame('Default Priority Route', $context->route?->name);
+    $assertSame(true, $context->route?->detailsAvailable);
+    $assertSame(5, $context->route?->modelCount);
+    $assertSame(5, count($context->route?->models ?? []));
+    $assertSame('Claude Haiku 4.5', $context->route?->models[4]->model);
+    $assertSame('gpt-4.1-mini', $context->latestRequest?->model);
+});
+
+$test('me typed context preserves nullable and legacy route states', static function () use (
+    $assertSame,
+    $jsonResponse
+): void {
+    $transport = new MockTransport();
+    $transport->push($jsonResponse([
+        'app' => null,
+        'policy' => ['id' => 'policy-1', 'name' => 'Legacy Route'],
+        'tenant' => null,
+        'auth' => ['credential_type' => 'api_key'],
+        'credits' => null,
+        'latest_request' => null,
+    ]));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+
+    $context = $client->me->retrieveContext();
+
+    $assertSame(null, $context->app);
+    $assertSame('Legacy Route', $context->route?->name);
+    $assertSame(false, $context->route?->detailsAvailable);
+    $assertSame(null, $context->route?->modelCount);
+    $assertSame(null, $context->credits);
+    $assertSame(null, $context->latestRequest);
+});
+
 $test('missing key and invalid options fail before transport', static function () use ($assertThrows): void {
     $previousKey = getenv('LATENTKIT_API_KEY');
     putenv('LATENTKIT_API_KEY');

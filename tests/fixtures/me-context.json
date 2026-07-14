@@ -1,0 +1,87 @@
+{
+  "app": {
+    "id": "app-wordpress",
+    "slug": "wordpress-connector",
+    "name": "WordPress Connector"
+  },
+  "policy": {
+    "id": "policy-default",
+    "name": "Default Priority Route",
+    "strategy": "priority",
+    "published": true,
+    "version": 5,
+    "model_count": 5,
+    "models": [
+      {
+        "rank": 1,
+        "active": true,
+        "provider": "DeepSeek",
+        "model": "DeepSeek Chat",
+        "model_id": "deepseek-chat",
+        "capabilities": ["text"],
+        "response_profile": "balanced"
+      },
+      {
+        "rank": 2,
+        "active": true,
+        "provider": "OpenAI",
+        "model": "GPT-4.1 Mini",
+        "model_id": "gpt-4.1-mini",
+        "capabilities": ["text", "function_calling"],
+        "response_profile": "balanced"
+      },
+      {
+        "rank": 3,
+        "active": true,
+        "provider": "Z.ai",
+        "model": "GLM 4.5 Air",
+        "model_id": "glm-4.5-air",
+        "capabilities": ["text"],
+        "response_profile": "balanced"
+      },
+      {
+        "rank": 4,
+        "active": true,
+        "provider": "Google AI",
+        "model": "Gemini 2.5 Flash",
+        "model_id": "gemini-2.5-flash",
+        "capabilities": ["text", "vision"],
+        "response_profile": "balanced"
+      },
+      {
+        "rank": 5,
+        "active": true,
+        "provider": "Anthropic",
+        "model": "Claude Haiku 4.5",
+        "model_id": "claude-haiku-4-5",
+        "capabilities": ["text"],
+        "response_profile": "balanced"
+      }
+    ]
+  },
+  "tenant": {
+    "id": "tenant-echo",
+    "name": "Echo Pilot's Workspace"
+  },
+  "account": null,
+  "auth": {
+    "credential_type": "api_key",
+    "auth_provider": null,
+    "grant_scope": null
+  },
+  "credits": {
+    "remaining_usd": 99.64
+  },
+  "latest_request": {
+    "request_id": "req-latest",
+    "provider": "openai",
+    "model": "gpt-4.1-mini",
+    "status": "success",
+    "endpoint": "chat",
+    "latency_ms": 420,
+    "fallback_count": 1,
+    "policy_id": "policy-default",
+    "policy_version_id": "policy-version-5",
+    "created_at": "2026-07-14T12:00:00Z"
+  }
+}
