@@ -17,8 +17,8 @@
   ],
   "homepage": "https://docs.latentkit.com",
   "support": {
-    "issues": "https://github.com/latentkit/latentkit/issues",
-    "source": "https://github.com/latentkit/latentkit"
+    "issues": "https://github.com/amirehman/latentkit-php/issues",
+    "source": "https://github.com/amirehman/latentkit-php"
   },
   "require": {
     "php": "^8.1",
