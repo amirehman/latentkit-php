@@ -1,0 +1,53 @@
+{
+  "name": "latentkit/latentkit-php",
+  "description": "Official PHP SDK for LatentKit's route-based /v1 API.",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "LatentKit"
+    }
+  ],
+  "keywords": [
+    "latentkit",
+    "ai",
+    "sdk",
+    "gateway",
+    "llm"
+  ],
+  "homepage": "https://docs.latentkit.com",
+  "support": {
+    "issues": "https://github.com/latentkit/latentkit/issues",
+    "source": "https://github.com/latentkit/latentkit"
+  },
+  "require": {
+    "php": "^8.1",
+    "psr/http-client": "^1.0",
+    "psr/http-factory": "^1.0",
+    "psr/http-message": "^1.1 || ^2.0"
+  },
+  "suggest": {
+    "ext-curl": "Required by the zero-configuration CurlTransport. Not needed when injecting Psr18Transport."
+  },
+  "autoload": {
+    "psr-4": {
+      "LatentKit\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "LatentKit\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "lint": "@php tests/lint.php",
+    "test": "@php tests/run.php",
+    "check": [
+      "@lint",
+      "@test"
+    ]
+  },
+  "config": {
+    "sort-packages": true
+  }
+}
