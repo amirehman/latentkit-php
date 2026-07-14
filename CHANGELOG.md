@@ -6,6 +6,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.1.0-beta.1 - 2026-07-14
+
 ### Added
 
 - PHP 8.1+ client for LatentKit's canonical, route-based `/v1` API.
