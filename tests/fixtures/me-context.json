@@ -72,6 +72,23 @@
   "credits": {
     "remaining_usd": 99.64
   },
+  "purposes": [
+    {
+      "purpose": "extraction",
+      "description": "Pull structured fields out of uploaded documents",
+      "is_enabled": true
+    },
+    {
+      "purpose": "drafting",
+      "description": "First-draft post copy an editor reviews",
+      "is_enabled": true
+    },
+    {
+      "purpose": "bulk-tagging",
+      "description": "Overnight re-tagging of the archive",
+      "is_enabled": false
+    }
+  ],
   "latest_request": {
     "request_id": "req-latest",
     "provider": "openai",

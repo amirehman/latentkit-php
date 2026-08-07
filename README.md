@@ -103,13 +103,17 @@ $client->chat->create(
     messages: [['role' => 'user', 'content' => 'Hello']],
 );
 
-// A purpose selects which published route handles the request. The label is declared
-// per app in the LatentKit console; unknown labels fall back to the app's default
-// route rather than failing, so check `lk_applied_purpose` on the response.
+// A purpose selects which published route handles the request. Read the labels your
+// workspace configured instead of hardcoding one; unknown labels fall back to the app's
+// default route rather than failing, so check `lk_applied_purpose` on the response.
+foreach ($client->me->retrieveContext()->purposes as $purpose) {
+    echo $purpose->purpose, ' - ', $purpose->description, PHP_EOL;
+}
+
 $client->chat->create(
-    messages: [['role' => 'user', 'content' => 'Which planet is closest to the sun?']],
+    messages: [['role' => 'user', 'content' => 'Extract the invoice total from this text.']],
     responseProfile: 'deep',
-    purpose: 'quiz',
+    purpose: 'extraction',
 );
 
 $client->vision->create(

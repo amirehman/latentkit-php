@@ -125,6 +125,13 @@ $test('me typed context parses the shared five-model route fixture', static func
     $assertSame(5, count($context->route?->models ?? []));
     $assertSame('Claude Haiku 4.5', $context->route?->models[4]->model);
     $assertSame('gpt-4.1-mini', $context->latestRequest?->model);
+    // Purpose labels the caller may send. A disabled binding is listed, not hidden:
+    // "configured but off" and "never configured" have different fixes.
+    $assertSame(3, count($context->purposes));
+    $assertSame('extraction', $context->purposes[0]->purpose);
+    $assertSame('Pull structured fields out of uploaded documents', $context->purposes[0]->description);
+    $assertSame(true, $context->purposes[0]->isEnabled);
+    $assertSame(false, $context->purposes[2]->isEnabled);
 });
 
 $test('me typed context preserves nullable and legacy route states', static function () use (

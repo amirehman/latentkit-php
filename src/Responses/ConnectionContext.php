@@ -13,6 +13,8 @@ final class ConnectionContext
         public readonly ?AccountContext $account,
         public readonly ?AuthContext $auth,
         public readonly ?CreditsContext $credits,
+        /** @var list<PurposeContext> Purpose labels configured for this app; empty when none are. */
+        public readonly array $purposes,
         public readonly ?LatestRequestSummary $latestRequest,
     ) {
     }
@@ -27,6 +29,7 @@ final class ConnectionContext
             account: self::object($data['account'] ?? null, AccountContext::fromArray(...)),
             auth: self::object($data['auth'] ?? null, AuthContext::fromArray(...)),
             credits: self::object($data['credits'] ?? null, CreditsContext::fromArray(...)),
+            purposes: self::objectList($data['purposes'] ?? null, PurposeContext::fromArray(...)),
             latestRequest: self::object(
                 $data['latest_request'] ?? null,
                 LatestRequestSummary::fromArray(...),
@@ -43,5 +46,27 @@ final class ConnectionContext
     private static function object(mixed $value, callable $factory): mixed
     {
         return is_array($value) ? $factory($value) : null;
+    }
+
+    /**
+     * @template T
+     * @param mixed $value
+     * @param callable(array<string, mixed>): T $factory
+     * @return list<T>
+     */
+    private static function objectList(mixed $value, callable $factory): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($value as $item) {
+            if (is_array($item)) {
+                $items[] = $factory($item);
+            }
+        }
+
+        return $items;
     }
 }
