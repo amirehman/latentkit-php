@@ -6,7 +6,16 @@ namespace LatentKit\Support;
 
 final class RouteControlGuard
 {
-    /** @var array<string, true> */
+    /**
+     * Keys that would let a caller pick the model itself, rejected client-side so the
+     * mistake surfaces at the call site.
+     *
+     * `purpose` is deliberately NOT in this set: it is the supported way to send
+     * different kinds of work to different routes. It names a label the tenant
+     * configured in the console, never a model, provider, or policy.
+     *
+     * @var array<string, true>
+     */
     private const ROUTE_CONTROL_KEYS = [
         'model' => true,
         'models' => true,

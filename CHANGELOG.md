@@ -6,6 +6,17 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+- `purpose` on `chat->create()` and `vision->create()`: a tenant-declared routing
+  label, configured per app in the console, that selects which published policy
+  handles the request. Composes with `responseProfile` rather than replacing it.
+  Declared after `$extraBody` so existing positional calls keep working — prefer
+  named arguments.
+- Responses carry `lk_requested_purpose`, `lk_applied_purpose`, and
+  `lk_purpose_source`. `lk_applied_purpose` is null whenever routing fell back to
+  the app default, including when the requested purpose was never configured.
+
 ## 0.1.0-beta.3 - 2026-07-14
 
 ### Fixed

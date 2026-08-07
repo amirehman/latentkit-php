@@ -103,6 +103,15 @@ $client->chat->create(
     messages: [['role' => 'user', 'content' => 'Hello']],
 );
 
+// A purpose selects which published route handles the request. The label is declared
+// per app in the LatentKit console; unknown labels fall back to the app's default
+// route rather than failing, so check `lk_applied_purpose` on the response.
+$client->chat->create(
+    messages: [['role' => 'user', 'content' => 'Which planet is closest to the sun?']],
+    responseProfile: 'deep',
+    purpose: 'quiz',
+);
+
 $client->vision->create(
     prompt: 'Describe this image.',
     imageUrl: 'https://example.com/image.png',
