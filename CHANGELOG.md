@@ -16,6 +16,10 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Responses carry `lk_requested_purpose`, `lk_applied_purpose`, and
   `lk_purpose_source`. `lk_applied_purpose` is null whenever routing fell back to
   the app default, including when the requested purpose was never configured.
+- `me->retrieveContext()` exposes `purposes` (label, description, enabled) so callers
+  discover configured labels instead of hardcoding them.
+- Transcription and translation are not part of PHP 0.1, so their `purpose` support
+  lands with those resources; JavaScript and Python already have it.
 
 ## 0.1.0-beta.3 - 2026-07-14
 
