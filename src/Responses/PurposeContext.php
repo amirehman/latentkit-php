@@ -20,6 +20,13 @@ final class PurposeContext
         public readonly string $description,
         /** False means the binding exists but is off; requests fall back to the default. */
         public readonly bool $isEnabled,
+        /**
+         * The capability this purpose guarantees, or null for an ordinary routing
+         * preference. Non-null means LatentKit configures the provider for it, refuses to
+         * route to a model that cannot deliver it, and fails rather than returning a
+         * partial result — so send only `purpose`, never provider-specific flags.
+         */
+        public readonly ?string $capability = null,
     ) {
     }
 
@@ -30,6 +37,7 @@ final class PurposeContext
             purpose: is_string($data['purpose'] ?? null) ? $data['purpose'] : '',
             description: is_string($data['description'] ?? null) ? $data['description'] : '',
             isEnabled: (bool) ($data['is_enabled'] ?? true),
+            capability: is_string($data['capability'] ?? null) ? $data['capability'] : null,
         );
     }
 }
