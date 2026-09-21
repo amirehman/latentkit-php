@@ -12,6 +12,7 @@ use LatentKit\Exceptions\LatentKitException;
 use LatentKit\Exceptions\RateLimitException;
 use LatentKit\Exceptions\ValidationException;
 use LatentKit\Resources\ChatResource;
+use LatentKit\Resources\DecisionsResource;
 use LatentKit\Resources\EmbeddingsResource;
 use LatentKit\Resources\ImageResource;
 use LatentKit\Resources\MeResource;
@@ -38,6 +39,7 @@ final class LatentKit
     public readonly ImageResource $image;
     public readonly MeResource $me;
     public readonly QueueResource $queue;
+    public readonly DecisionsResource $decisions;
 
     /**
      * @param array<string, string> $headers
@@ -83,6 +85,7 @@ final class LatentKit
         $this->image = new ImageResource($requestJson);
         $this->me = new MeResource($requestJson);
         $this->queue = new QueueResource($requestJson);
+        $this->decisions = new DecisionsResource($requestJson);
     }
 
     /**

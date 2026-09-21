@@ -21,6 +21,7 @@ final class QueueResource extends Resource
         'translation' => true,
         'audio' => true,
         'video' => true,
+        'decisions' => true,
     ];
 
     /**
