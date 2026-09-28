@@ -39,7 +39,7 @@ echo $response['content'];
 Set the key server-side:
 
 ```bash
-export LATENTKIT_API_KEY="lk_..."
+export LATENTKIT_API_KEY="lk-..."
 ```
 
 ## Client options
