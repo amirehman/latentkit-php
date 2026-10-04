@@ -27,6 +27,8 @@ final class PurposeContext
          * partial result — so send only `purpose`, never provider-specific flags.
          */
         public readonly ?string $capability = null,
+        /** How this purpose picks among its models; null means it follows the route's strategy. */
+        public readonly ?string $strategy = null,
     ) {
     }
 
@@ -38,6 +40,7 @@ final class PurposeContext
             description: is_string($data['description'] ?? null) ? $data['description'] : '',
             isEnabled: (bool) ($data['is_enabled'] ?? true),
             capability: is_string($data['capability'] ?? null) ? $data['capability'] : null,
+            strategy: is_string($data['strategy'] ?? null) ? $data['strategy'] : null,
         );
     }
 }
