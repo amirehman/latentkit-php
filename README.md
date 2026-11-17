@@ -57,7 +57,11 @@ $client = new LatentKit(
 
 - `apiKey` falls back to `LATENTKIT_API_KEY`.
 - `baseUrl` falls back to `LATENTKIT_BASE_URL`, then `https://ai.latentkit.com`, and is normalized to `/v1`.
-- `headers` adds or overrides request headers.
+- `headers` adds or overrides request headers. A header name or value containing
+  control characters is rejected before any request is sent.
+- `timeoutSeconds` is also sent to LatentKit as the client deadline, so the gateway
+  stops trying providers once this client has stopped waiting.
+- A key or base URL pasted with surrounding whitespace is trimmed.
 - `transport` accepts any `TransportInterface` implementation.
 - `toolSlug` and `toolVersion` set LatentKit tool-attribution headers.
 - `appId` is only for a credential that supports explicit app context.
@@ -90,6 +94,11 @@ on the next call. Runtime SDK credentials cannot change the route.
 When a compatible gateway returns the ordered `models` list without a separate
 `model_count`, the typed context derives the count from the returned models.
 This avoids presenting a populated route as unavailable or empty.
+
+`$context->limits` reports the request limits the connected gateway enforces
+(`maxRequestBodyBytes`, `maxAudioBytes`, `queueMaxPayloadBytes`, and the
+idempotency and job-result lifetimes). Read them instead of hardcoding sizes;
+it is `null` when the gateway does not report limits.
 
 `$client->me->retrieve()` remains available when raw associative arrays are
 preferred.
@@ -162,12 +171,33 @@ try {
     error_log(json_encode([
         'status' => $error->statusCode,
         'code' => $error->apiCode,
+        'category' => $error->category,
         'request_id' => $error->requestId,
     ]));
+
+    if ($error->retryable === true) {
+        // LatentKit says the same request can succeed later. Every 429 carries a
+        // delay; other retryable errors may not, so choose your own backoff then.
+        $waitSeconds = $error->retryAfterSeconds ?? 2;
+    }
 }
 ```
 
 `AuthenticationException`, `RateLimitException`, and `ValidationException` extend `ApiException`. Network/client failures throw `TransportException`; malformed successful API responses throw `InvalidResponseException`.
+
+`ApiException` also exposes what LatentKit says about the failure:
+
+| Property | Meaning |
+|---|---|
+| `apiCode` | Stable error code, such as `KEY_DISABLED`, `INSUFFICIENT_CREDITS`, or `RATE_LIMITED` |
+| `category` | Handling category: `auth`, `billing`, `quota`, `routing`, `policy`, `upstream`, or `gateway` |
+| `retryable` | `true` when the same request can succeed later, `false` when something must change first, `null` when the response did not say |
+| `retryAfterSeconds` | Seconds to wait, from the `Retry-After` header or the error detail |
+| `suggestedAction` | Machine-readable next step when LatentKit names one |
+
+The SDK does not retry on its own. `apiCode` is safe to show an operator; the
+message text can include upstream provider output, so log it rather than
+rendering it.
 
 ## HTTP transports
 

@@ -20,6 +20,31 @@ The project follows [Semantic Versioning](https://semver.org/).
   discover configured labels instead of hardcoding them.
 - Transcription and translation are not part of PHP 0.1, so their `purpose` support
   lands with those resources; JavaScript and Python already have it.
+- `ApiException` exposes `category`, `retryable`, `retryAfterSeconds`, and
+  `suggestedAction` from the error envelope and the `Retry-After` header, so a
+  caller can tell a transient failure from one that needs a configuration change.
+  The SDK still does not retry on its own.
+- `me->retrieveContext()` exposes `limits`: the request-size, queue-payload, and
+  retention limits the connected gateway enforces.
+
+### Changed
+
+- Requests send `Accept: application/json` and the client deadline
+  (`X-LK-Client-Timeout-Ms`, derived from `timeoutSeconds`), so LatentKit stops
+  trying providers once the client has stopped waiting.
+- An API key or base URL with surrounding whitespace is trimmed instead of being
+  sent as a malformed header or URL.
+- A route-control key under `provider_extra` (for example
+  `provider_extra.model`) is rejected at the call site, in `extraBody` and in a
+  queued payload. LatentKit drops such a key without an error, so the call used
+  to succeed while the model was not pinned.
+
+### Security
+
+- Header names that are not valid HTTP tokens, and header values containing
+  control characters, are rejected before a request is sent. This closes header
+  injection through a custom header, tool attribution value, or API key that
+  contains a line break. The rejected value is never echoed.
 
 ## 0.1.0-beta.3 - 2026-07-14
 

@@ -16,6 +16,8 @@ final class ConnectionContext
         /** @var list<PurposeContext> Purpose labels configured for this app; empty when none are. */
         public readonly array $purposes,
         public readonly ?LatestRequestSummary $latestRequest,
+        /** Request limits enforced by the connected gateway; null when it predates the `limits` block. */
+        public readonly ?LimitsContext $limits = null,
     ) {
     }
 
@@ -34,6 +36,7 @@ final class ConnectionContext
                 $data['latest_request'] ?? null,
                 LatestRequestSummary::fromArray(...),
             ),
+            limits: self::object($data['limits'] ?? null, LimitsContext::fromArray(...)),
         );
     }
 

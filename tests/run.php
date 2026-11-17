@@ -218,6 +218,45 @@ $test('route control keys are rejected before requests', static function () use 
     if ($transport->requests !== []) {
         throw new RuntimeException('A rejected route-control request reached the transport.');
     }
+
+    // The gateway silently drops a model placed under provider_extra, so it is
+    // rejected at the call site, in a direct call and in a queued payload.
+    $nested = $assertThrows(
+        InvalidArgumentException::class,
+        static fn () => $client->chat->create(
+            [['role' => 'user', 'content' => 'hello']],
+            extraBody: ['provider_extra' => ['model' => 'gpt-4o']],
+        ),
+    );
+    if (!str_contains($nested->getMessage(), 'provider_extra')) {
+        throw new RuntimeException('The provider_extra rejection did not name the container.');
+    }
+    $assertThrows(
+        InvalidArgumentException::class,
+        static fn () => $client->queue->create('chat', ['messages' => [], 'provider_extra' => ['provider' => 'openai']]),
+    );
+    if ($transport->requests !== []) {
+        throw new RuntimeException('A rejected provider_extra request reached the transport.');
+    }
+
+    // A tool whose JSON schema has a property named "model" is ordinary data.
+    $transport->push(new HttpResponse(200, '{"content":"ok"}'));
+    $client->chat->create(
+        [['role' => 'user', 'content' => 'hello']],
+        extraBody: [
+            'tools' => [[
+                'type' => 'function',
+                'function' => [
+                    'name' => 'lookup_car',
+                    'parameters' => ['type' => 'object', 'properties' => ['model' => ['type' => 'string']]],
+                ],
+            ]],
+            'provider_extra' => ['reasoning_effort' => 'low'],
+        ],
+    );
+    if (count($transport->requests) !== 1) {
+        throw new RuntimeException('A tool schema with a "model" property must be sent.');
+    }
 });
 
 $test('vision, embeddings, and image map to canonical request bodies', static function () use ($assertSame, $jsonResponse): void {
@@ -301,6 +340,162 @@ $test('invalid success JSON is rejected', static function () use ($assertThrows)
     $transport->push(new HttpResponse(200, 'not-json'));
     $client = new LatentKit(apiKey: 'key', transport: $transport);
     $assertThrows(InvalidResponseException::class, static fn () => $client->me->retrieve());
+});
+
+$test('API errors expose category, retryability, retry delay, and suggested action', static function () use (
+    $assertSame,
+    $assertThrows,
+    $jsonResponse
+): void {
+    $transport = new MockTransport();
+    $transport->push($jsonResponse([
+        'error' => [
+            'code' => 'NO_HEALTHY_PROVIDER',
+            'category' => 'routing',
+            'message' => 'No route can serve this capability',
+            'request_id' => 'req_config',
+            'retryable' => false,
+            'suggested_action' => 'attach_provider_for_capability',
+        ],
+    ], 503));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+    $exception = $assertThrows(\LatentKit\Exceptions\ApiException::class, static fn () => $client->me->retrieve());
+    $assertSame('routing', $exception->category);
+    $assertSame(false, $exception->retryable);
+    $assertSame('attach_provider_for_capability', $exception->suggestedAction);
+    $assertSame(null, $exception->retryAfterSeconds);
+
+    // Budget reserved by in-flight requests: retryable, with the delay in the header.
+    $transport = new MockTransport();
+    $transport->push($jsonResponse([
+        'error' => ['code' => 'KEY_BUDGET_IN_FLIGHT', 'category' => 'billing', 'retryable' => true],
+    ], 429, ['retry-after' => '7']));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+    $exception = $assertThrows(RateLimitException::class, static fn () => $client->me->retrieve());
+    $assertSame('billing', $exception->category);
+    $assertSame(true, $exception->retryable);
+    $assertSame(7, $exception->retryAfterSeconds);
+
+    // The edge rate limiter answers with a bare string and no retryable flag.
+    $transport = new MockTransport();
+    $transport->push($jsonResponse(['error' => 'rate_limited'], 429, ['retry-after' => '60']));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+    $exception = $assertThrows(RateLimitException::class, static fn () => $client->me->retrieve());
+    $assertSame('rate_limited', $exception->apiCode);
+    $assertSame(null, $exception->retryable);
+    $assertSame(null, $exception->category);
+    $assertSame(60, $exception->retryAfterSeconds);
+
+    // Without a header, the delay in the error detail is used.
+    $transport = new MockTransport();
+    $transport->push($jsonResponse([
+        'error' => ['code' => 'RATE_LIMITED', 'retryable' => true],
+        'detail' => ['retry_after_seconds' => 12],
+    ], 429));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+    $exception = $assertThrows(RateLimitException::class, static fn () => $client->me->retrieve());
+    $assertSame(12, $exception->retryAfterSeconds);
+
+    // An HTTP-date Retry-After is converted to a non-negative number of seconds.
+    $transport = new MockTransport();
+    $transport->push($jsonResponse(
+        ['error' => ['code' => 'RATE_LIMITED']],
+        429,
+        ['retry-after' => gmdate('D, d M Y H:i:s', time() + 120) . ' GMT'],
+    ));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+    $exception = $assertThrows(RateLimitException::class, static fn () => $client->me->retrieve());
+    if ($exception->retryAfterSeconds === null || $exception->retryAfterSeconds < 100 || $exception->retryAfterSeconds > 120) {
+        throw new RuntimeException('HTTP-date Retry-After was not converted: ' . var_export($exception->retryAfterSeconds, true));
+    }
+
+    // A non-JSON error body still yields an exception with no invented metadata.
+    $transport = new MockTransport();
+    $transport->push(new HttpResponse(502, '<html>bad gateway</html>'));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+    $exception = $assertThrows(\LatentKit\Exceptions\ApiException::class, static fn () => $client->me->retrieve());
+    $assertSame(null, $exception->retryable);
+    $assertSame(null, $exception->retryAfterSeconds);
+});
+
+$test('requests declare JSON, send the client deadline, and trim pasted credentials', static function () use (
+    $assertSame,
+    $jsonResponse
+): void {
+    $transport = new MockTransport();
+    $transport->push($jsonResponse(['content' => 'ok']));
+    $client = new LatentKit(
+        apiKey: "  lk-pasted-key\n",
+        baseUrl: " https://example.test/ \n",
+        timeoutSeconds: 12.5,
+        headers: ['X-Trace' => 'abc'],
+        transport: $transport,
+    );
+    $client->chat->create([['role' => 'user', 'content' => 'hello']]);
+
+    $headers = $transport->requests[0]['headers'];
+    $assertSame('Bearer lk-pasted-key', $headers['Authorization']);
+    $assertSame('application/json', $headers['Accept']);
+    $assertSame('12500', $headers['X-LK-Client-Timeout-Ms']);
+    $assertSame('abc', $headers['X-Trace']);
+    $assertSame('https://example.test/v1/chat', $transport->requests[0]['url']);
+});
+
+$test('header names and values that could split a header line are rejected', static function () use (
+    $assertThrows
+): void {
+    $transport = new MockTransport();
+    $cases = [
+        ['headers' => ['X-Trace' => "abc\r\nX-LK-App-ID: other"]],
+        ['headers' => ["X-Trace\r\nX-Injected" => 'abc']],
+        ['headers' => ['X-Trace' => 42]],
+        ['toolSlug' => "tool\nX-Injected: 1"],
+        ['apiKey' => "lk-first\r\nX-Injected: 1"],
+    ];
+    foreach ($cases as $arguments) {
+        $exception = $assertThrows(
+            \InvalidArgumentException::class,
+            static fn () => new LatentKit(...array_merge(['apiKey' => 'key', 'transport' => $transport], $arguments)),
+        );
+        if (str_contains($exception->getMessage(), 'lk-first') || str_contains($exception->getMessage(), 'X-Injected')) {
+            throw new RuntimeException('The rejection message must not echo the header value.');
+        }
+    }
+    if ($transport->requests !== []) {
+        throw new RuntimeException('No request may be sent with unsafe headers.');
+    }
+});
+
+$test('me typed context exposes gateway limits and tolerates their absence', static function () use (
+    $assertSame,
+    $jsonResponse
+): void {
+    $transport = new MockTransport();
+    $transport->push($jsonResponse([
+        'app' => ['id' => 'app-1', 'slug' => 'demo', 'name' => 'Demo'],
+        'limits' => [
+            'max_request_body_bytes' => 52428800,
+            'max_audio_bytes' => 26214400,
+            'max_audio_url_bytes' => 26214400,
+            'max_audio_seconds' => null,
+            'queue_max_payload_bytes' => 2097152,
+            'sync_idempotency_ttl_seconds' => 86400,
+            'stt_job_result_ttl_seconds' => 259200,
+        ],
+    ]));
+    $transport->push($jsonResponse(['app' => ['id' => 'app-1', 'slug' => 'demo', 'name' => 'Demo']]));
+    $client = new LatentKit(apiKey: 'key', transport: $transport);
+
+    $limits = $client->me->retrieveContext()->limits;
+    $assertSame(52428800, $limits?->maxRequestBodyBytes);
+    $assertSame(26214400, $limits?->maxAudioBytes);
+    $assertSame(null, $limits?->maxAudioSeconds);
+    $assertSame(2097152, $limits?->queueMaxPayloadBytes);
+    $assertSame(86400, $limits?->syncIdempotencyTtlSeconds);
+    $assertSame(259200, $limits?->sttJobResultTtlSeconds);
+
+    // A gateway that predates the limits block reports none rather than zeros.
+    $assertSame(null, $client->me->retrieveContext()->limits);
 });
 
 $failures = 0;

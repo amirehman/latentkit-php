@@ -41,6 +41,23 @@ final class RouteControlGuard
                 );
             }
         }
+
+        // `provider_extra` carries provider-native parameters, and the gateway drops a
+        // model or provider placed there without saying so. Reject it here so a caller
+        // does not believe a model is pinned when it is not. Only this one container is
+        // checked: recursing into everything would reject a tool schema that merely has
+        // a property named "model".
+        $providerExtra = $payload['provider_extra'] ?? null;
+        if (is_array($providerExtra)) {
+            foreach (array_keys($providerExtra) as $key) {
+                if (isset(self::ROUTE_CONTROL_KEYS[$key])) {
+                    throw new \InvalidArgumentException(
+                        "{$context}.provider_extra does not accept '{$key}'. LatentKit SDK requests are "
+                        . "route-based: the API key's assigned route selects the provider/model.",
+                    );
+                }
+            }
+        }
     }
 
     /**

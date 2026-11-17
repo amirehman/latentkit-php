@@ -66,16 +66,20 @@ final class LatentKit
 
         $resolvedBaseUrl = self::resolveValue($baseUrl, 'LATENTKIT_BASE_URL') ?? self::DEFAULT_BASE_URL;
         $this->baseV1 = self::normalizeBaseUrl($resolvedBaseUrl);
-        $this->headers = array_merge(
+        $this->headers = self::assertSafeHeaders(array_merge(
             [
                 'Authorization' => "Bearer {$resolvedApiKey}",
                 'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+                // Tells LatentKit when this client stops waiting, so the gateway does
+                // not keep trying providers for a response nobody will read.
+                'X-LK-Client-Timeout-Ms' => (string) max(1, (int) round($this->timeoutSeconds * 1000)),
             ],
             $toolSlug !== null && $toolSlug !== '' ? ['X-LK-Tool-Slug' => $toolSlug] : [],
             $toolVersion !== null && $toolVersion !== '' ? ['X-LK-Tool-Version' => $toolVersion] : [],
             $appId !== null && $appId !== '' ? ['X-LK-App-ID' => $appId] : [],
             $headers,
-        );
+        ));
         $this->transport = $transport ?? new CurlTransport();
 
         $requestJson = \Closure::fromCallable($this->requestJson(...));
@@ -152,7 +156,55 @@ final class LatentKit
             default => ApiException::class,
         };
 
-        return new $class($response->statusCode, $body, $apiCode, $requestId, $message);
+        return new $class(
+            $response->statusCode,
+            $body,
+            $apiCode,
+            $requestId,
+            $message,
+            self::extractString($body, ['error', 'category']) ?? self::extractString($body, ['category']),
+            self::extractBool($body, ['error', 'retryable']) ?? self::extractBool($body, ['retryable']),
+            self::retryAfterSeconds($response, $body),
+            self::extractString($body, ['error', 'suggested_action']),
+        );
+    }
+
+    /**
+     * @param array<string, mixed>|string|null $body
+     */
+    private static function retryAfterSeconds(HttpResponse $response, array|string|null $body): ?int
+    {
+        $header = $response->header('Retry-After');
+        if ($header !== null) {
+            $header = trim($header);
+            if (preg_match('/^\d+$/', $header) === 1) {
+                return (int) $header;
+            }
+            // RFC 9110 also allows an HTTP date.
+            $timestamp = $header !== '' ? strtotime($header) : false;
+            if ($timestamp !== false) {
+                return max(0, $timestamp - time());
+            }
+        }
+
+        foreach ([['detail', 'retry_after_seconds'], ['detail', 'retry_after'], ['retry_after_seconds']] as $path) {
+            $value = self::extractValue($body, $path);
+            if (is_int($value) || is_float($value) || (is_string($value) && is_numeric($value))) {
+                return max(0, (int) ceil((float) $value));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed>|string|null $body
+     * @param list<string> $path
+     */
+    private static function extractBool(array|string|null $body, array $path): ?bool
+    {
+        $value = self::extractValue($body, $path);
+        return is_bool($value) ? $value : null;
     }
 
     /**
@@ -160,6 +212,16 @@ final class LatentKit
      * @param list<string> $path
      */
     private static function extractString(array|string|null $body, array $path): ?string
+    {
+        $value = self::extractValue($body, $path);
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * @param array<string, mixed>|string|null $body
+     * @param list<string> $path
+     */
+    private static function extractValue(array|string|null $body, array $path): mixed
     {
         if (!is_array($body)) {
             return null;
@@ -171,16 +233,44 @@ final class LatentKit
             }
             $value = $value[$key];
         }
-        return is_string($value) && $value !== '' ? $value : null;
+        return $value;
     }
 
+    /**
+     * Surrounding whitespace is removed: a key or URL pasted with a trailing newline
+     * would otherwise produce a malformed header or an unreachable host.
+     */
     private static function resolveValue(?string $explicit, string $environmentName): ?string
     {
         if ($explicit !== null && trim($explicit) !== '') {
-            return $explicit;
+            return trim($explicit);
         }
         $environment = getenv($environmentName);
-        return is_string($environment) && trim($environment) !== '' ? $environment : null;
+        return is_string($environment) && trim($environment) !== '' ? trim($environment) : null;
+    }
+
+    /**
+     * Reject header names and values that could split or smuggle a header line.
+     *
+     * @param array<array-key, mixed> $headers
+     * @return array<string, string>
+     */
+    private static function assertSafeHeaders(array $headers): array
+    {
+        $safe = [];
+        foreach ($headers as $name => $value) {
+            if (!is_string($name) || preg_match('/^[A-Za-z0-9!#$%&\'*+.^_`|~-]+$/', $name) !== 1) {
+                throw new \InvalidArgumentException('LatentKit header names must be valid HTTP header tokens.');
+            }
+            if (!is_string($value) || preg_match('/[\x00-\x08\x0A-\x1F\x7F]/', $value) === 1) {
+                // The value is never echoed: it may be the API key.
+                throw new \InvalidArgumentException(
+                    "The value of the '{$name}' header must be a string without control characters.",
+                );
+            }
+            $safe[$name] = $value;
+        }
+        return $safe;
     }
 
     private static function normalizeBaseUrl(string $baseUrl): string
