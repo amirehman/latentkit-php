@@ -9,7 +9,7 @@ The application sends the task. The API key's assigned published route selects t
 Install the current beta from [Packagist](https://packagist.org/packages/latentkit/latentkit-php):
 
 ```bash
-composer require latentkit/latentkit-php:0.1.0-beta.3
+composer require latentkit/latentkit-php:0.1.0-beta.4
 ```
 
 For repository development, run `composer install` inside `sdk/php` and load `vendor/autoload.php`.
