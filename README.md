@@ -141,7 +141,45 @@ $client->image->generate(
 );
 ```
 
-Chat streaming, completions, speech, transcription, translation, video, control-plane helpers, IDE auth, and agent sessions are not part of PHP 0.1. JavaScript and Python remain the full-surface SDKs while PHP parity expands.
+Added in 0.1.0-beta.5:
+
+```php
+// Tools and a response format are named arguments on chat.
+$reply = $client->chat->create(
+    messages: [['role' => 'user', 'content' => 'What is the weather in Oslo?']],
+    tools: [[
+        'type' => 'function',
+        'function' => ['name' => 'get_weather', 'parameters' => ['type' => 'object']],
+    ]],
+);
+$toolCalls = $reply['tool_calls'] ?? [];
+
+// Streamed chat. Text arrives in message.delta events.
+foreach ($client->chat->stream(messages: [['role' => 'user', 'content' => 'Hello']]) as $event) {
+    if ($event['event'] === 'message.delta') {
+        echo $event['data']['delta'];
+    }
+}
+
+// Text to speech. The audio is base64 in a content block of type output_audio.
+$speech = $client->speech->create(input: 'Hello from LatentKit.');
+
+// Speech to text. The transcript is the response content.
+$transcript = $client->transcription->create(
+    audioBase64: base64_encode((string) file_get_contents('memo.mp3')),
+    mediaType: 'audio/mpeg',
+);
+
+// What the key's route can serve, decided by the gateway's own routing rules.
+$snapshot = $client->me->retrieveContext()->capabilitySnapshot;
+if ($snapshot !== null && !$snapshot->isAvailable('speech')) {
+    echo $snapshot->reason('speech');
+}
+```
+
+Streaming needs a transport that implements `StreamingTransportInterface`. The default `CurlTransport` does; `Psr18Transport` does not, because PSR-18 has no streaming contract.
+
+Completions, translation, video, control-plane helpers, IDE auth, and agent sessions are not part of PHP 0.1. JavaScript and Python remain the full-surface SDKs while PHP parity expands.
 
 ## Queue is enqueue-only
 

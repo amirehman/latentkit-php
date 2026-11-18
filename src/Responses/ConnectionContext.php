@@ -18,6 +18,19 @@ final class ConnectionContext
         public readonly ?LatestRequestSummary $latestRequest,
         /** Request limits enforced by the connected gateway; null when it predates the `limits` block. */
         public readonly ?LimitsContext $limits = null,
+        /**
+         * What this key can do right now, per operation. Null when the gateway could not
+         * determine it for this request or predates the snapshot; treat null as unknown,
+         * never as "nothing is available".
+         */
+        public readonly ?CapabilitySnapshot $capabilitySnapshot = null,
+        /**
+         * The routes this key can reach, default route first: one entry per capability
+         * override, each with its purposes. Empty when the gateway reports none.
+         *
+         * @var list<array<string, mixed>>
+         */
+        public readonly array $routingContexts = [],
     ) {
     }
 
@@ -37,6 +50,11 @@ final class ConnectionContext
                 LatestRequestSummary::fromArray(...),
             ),
             limits: self::object($data['limits'] ?? null, LimitsContext::fromArray(...)),
+            capabilitySnapshot: self::object($data['capability_snapshot'] ?? null, CapabilitySnapshot::fromArray(...)),
+            routingContexts: array_values(array_filter(
+                is_array($data['routing_contexts'] ?? null) ? $data['routing_contexts'] : [],
+                'is_array',
+            )),
         );
     }
 

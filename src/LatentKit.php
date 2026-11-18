@@ -17,9 +17,14 @@ use LatentKit\Resources\EmbeddingsResource;
 use LatentKit\Resources\ImageResource;
 use LatentKit\Resources\MeResource;
 use LatentKit\Resources\QueueResource;
+use LatentKit\Resources\SpeechResource;
+use LatentKit\Resources\TranscriptionResource;
 use LatentKit\Resources\VisionResource;
+use LatentKit\Streaming\SseParser;
 use LatentKit\Transport\CurlTransport;
 use LatentKit\Transport\HttpResponse;
+use LatentKit\Transport\StreamedHttpResponse;
+use LatentKit\Transport\StreamingTransportInterface;
 use LatentKit\Transport\TransportInterface;
 
 final class LatentKit
@@ -40,6 +45,8 @@ final class LatentKit
     public readonly MeResource $me;
     public readonly QueueResource $queue;
     public readonly DecisionsResource $decisions;
+    public readonly SpeechResource $speech;
+    public readonly TranscriptionResource $transcription;
 
     /**
      * @param array<string, string> $headers
@@ -83,13 +90,15 @@ final class LatentKit
         $this->transport = $transport ?? new CurlTransport();
 
         $requestJson = \Closure::fromCallable($this->requestJson(...));
-        $this->chat = new ChatResource($requestJson);
+        $this->chat = new ChatResource($requestJson, \Closure::fromCallable($this->requestStream(...)));
         $this->vision = new VisionResource($requestJson);
         $this->embeddings = new EmbeddingsResource($requestJson);
         $this->image = new ImageResource($requestJson);
         $this->me = new MeResource($requestJson);
         $this->queue = new QueueResource($requestJson);
         $this->decisions = new DecisionsResource($requestJson);
+        $this->speech = new SpeechResource($requestJson);
+        $this->transcription = new TranscriptionResource($requestJson);
     }
 
     /**
@@ -126,6 +135,79 @@ final class LatentKit
         }
 
         return $decoded;
+    }
+
+    /**
+     * Sends a streaming request and returns its events.
+     *
+     * The request is sent before this returns, so a refused request raises here rather
+     * than at the first iteration. Events are then read as they arrive.
+     *
+     * @param array<string, mixed> $body
+     *
+     * @return \Generator<int, array{event: string, data: array<string, mixed>}>
+     */
+    private function requestStream(string $method, string $path, array $body): \Generator
+    {
+        if (!$this->transport instanceof StreamingTransportInterface) {
+            throw new LatentKitException(
+                'The configured transport cannot stream responses. Use CurlTransport or a transport '
+                . 'that implements StreamingTransportInterface.',
+            );
+        }
+        try {
+            $encodedBody = json_encode($body, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new \InvalidArgumentException('LatentKit request body is not valid JSON.', 0, $exception);
+        }
+
+        $response = $this->transport->stream(
+            $method,
+            $this->baseV1 . $path,
+            array_merge($this->headers, ['Accept' => 'text/event-stream']),
+            $encodedBody,
+            $this->timeoutSeconds,
+        );
+
+        if ($response->statusCode < 200 || $response->statusCode >= 300) {
+            $raw = '';
+            foreach ($response->chunks as $chunk) {
+                $raw .= $chunk;
+            }
+            throw $this->apiException(new HttpResponse($response->statusCode, $raw, $response->headers));
+        }
+
+        return $this->streamEvents($response);
+    }
+
+    /**
+     * @return \Generator<int, array{event: string, data: array<string, mixed>}>
+     */
+    private function streamEvents(StreamedHttpResponse $response): \Generator
+    {
+        foreach (SseParser::parse($response->chunks) as $event) {
+            if ($event['data'] === '[DONE]') {
+                return;
+            }
+            try {
+                $decoded = json_decode($event['data'], true, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException $exception) {
+                throw new InvalidResponseException('LatentKit sent a stream event that was not valid JSON.', 0, $exception);
+            }
+            if (!is_array($decoded) || array_is_list($decoded)) {
+                throw new InvalidResponseException('LatentKit sent a stream event that was not a JSON object.');
+            }
+
+            $name = $event['event'] ?? 'message';
+            if ($name === 'error' || $name === 'response.failed') {
+                // The stream began with HTTP 200, so the failure has no status of its own.
+                // Zero marks it as an in-stream error; the code, category and request ID
+                // carry the meaning.
+                throw $this->apiException(new HttpResponse(0, $event['data'], $response->headers));
+            }
+
+            yield ['event' => $name, 'data' => $decoded];
+        }
     }
 
     private function apiException(HttpResponse $response): ApiException

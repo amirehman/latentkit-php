@@ -4,6 +4,38 @@ All notable changes to the LatentKit PHP SDK will be documented in this file.
 
 The project follows [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-beta.5 - Unreleased
+
+Needs a gateway that reports `capability_snapshot` in `GET /v1/me` for the
+snapshot fields; every other addition works with any gateway.
+
+### Added
+
+- `chat->stream()`: streamed chat as server-sent events. Each item is
+  `['event' => string, 'data' => array]`; text arrives in `message.delta`, the
+  final message and complete tool calls in `message.completed`, token counts in
+  `response.usage`. The request is sent when the method is called, so a refused
+  request raises there; a failure after the stream starts raises an
+  `ApiException` with `statusCode` 0 during iteration.
+- `tools`, `toolChoice` and `responseFormat` arguments on `chat->create()` and
+  `chat->stream()`. They were reachable only through `extraBody` before.
+- `speech->create()` for text to speech and `transcription->create()` for
+  speech to text.
+- `StreamingTransportInterface` and `StreamedHttpResponse`. `CurlTransport`
+  implements streaming; a transport that does not raises a `LatentKitException`
+  when asked to stream instead of buffering the whole response.
+- `me->retrieveContext()` exposes `capabilitySnapshot`: what the key's route can
+  serve per operation and chat feature, the effective route, the reason when
+  something is unavailable, and the single embedding space when there is one.
+  It is `null` when the gateway did not report it, which means unknown, not
+  unavailable.
+- `me->retrieveContext()` exposes `routingContexts`, the routes the key can
+  reach with their purposes.
+
+### Changed
+
+- `CurlTransport` no longer calls `curl_close()`, which PHP 8.5 deprecates.
+
 ## 0.1.0-beta.4 - 2026-11-18
 
 ### Added

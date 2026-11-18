@@ -4,14 +4,18 @@ declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
 require __DIR__ . '/MockTransport.php';
+require __DIR__ . '/StreamingMockTransport.php';
 
+use LatentKit\Exceptions\ApiException;
 use LatentKit\Exceptions\AuthenticationException;
 use LatentKit\Exceptions\InvalidResponseException;
 use LatentKit\Exceptions\LatentKitException;
 use LatentKit\Exceptions\RateLimitException;
 use LatentKit\Exceptions\ValidationException;
 use LatentKit\LatentKit;
+use LatentKit\Streaming\SseParser;
 use LatentKit\Tests\MockTransport;
+use LatentKit\Tests\StreamingMockTransport;
 use LatentKit\Transport\HttpResponse;
 use LatentKit\Transport\Psr18Transport;
 
@@ -496,6 +500,248 @@ $test('me typed context exposes gateway limits and tolerates their absence', sta
 
     // A gateway that predates the limits block reports none rather than zeros.
     $assertSame(null, $client->me->retrieveContext()->limits);
+});
+
+$test('chat sends tools, tool choice, and response format as first-class arguments', static function () use (
+    $assertSame,
+    $jsonResponse,
+): void {
+    $transport = new MockTransport();
+    $transport->push($jsonResponse(['content' => '', 'tool_calls' => [['id' => 'call_1', 'type' => 'function', 'name' => 'lookup', 'arguments' => '{}']]]));
+    $client = new LatentKit(apiKey: 'lk_test', transport: $transport);
+    $tools = [['type' => 'function', 'function' => ['name' => 'lookup', 'parameters' => ['type' => 'object']]]];
+    $schema = ['type' => 'json_schema', 'json_schema' => ['name' => 'answer', 'schema' => ['type' => 'object']]];
+
+    $response = $client->chat->create(
+        messages: [['role' => 'user', 'content' => 'Find it']],
+        tools: $tools,
+        toolChoice: 'auto',
+        responseFormat: $schema,
+    );
+
+    $body = json_decode((string) $transport->requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+    $assertSame($tools, $body['tools']);
+    $assertSame('auto', $body['tool_choice']);
+    $assertSame($schema, $body['response_format']);
+    $assertSame(false, array_key_exists('stream', $body));
+    $assertSame('lookup', $response['tool_calls'][0]['name']);
+
+    // Omitted arguments add nothing to the request.
+    $transport->push($jsonResponse(['content' => 'ok']));
+    $client->chat->create(messages: [['role' => 'user', 'content' => 'Hi']]);
+    $plain = json_decode((string) $transport->requests[1]['body'], true, 512, JSON_THROW_ON_ERROR);
+    $assertSame(['messages', 'max_tokens', 'temperature'], array_keys($plain));
+});
+
+$test('chat stream yields events as they arrive and stops at the done marker', static function () use ($assertSame): void {
+    $transport = new StreamingMockTransport();
+    // Chunk boundaries fall mid-line, between a CR and its LF, and inside one event.
+    $transport->pushStream([
+        "event: response.started\r",
+        "\ndata: {\"request_id\":\"req_1\"}\r\n\r\nevent: message.del",
+        "ta\ndata: {\"delta\":\"Hel\"}\n\nevent: message.delta\ndata: {\"delta\":\"lo\"}\n",
+        "\nevent: response.usage\ndata: {\"input_tokens\":3,\"output_tokens\":2}\n\ndata: [DONE]\n\n",
+        "event: message.delta\ndata: {\"delta\":\"after the end\"}\n\n",
+    ]);
+    $client = new LatentKit(apiKey: 'lk_test', transport: $transport, toolSlug: 'unit');
+
+    $events = iterator_to_array($client->chat->stream(messages: [['role' => 'user', 'content' => 'Hi']]), false);
+
+    $assertSame(['response.started', 'message.delta', 'message.delta', 'response.usage'], array_column($events, 'event'));
+    $assertSame('Hel', $events[1]['data']['delta']);
+    $assertSame('lo', $events[2]['data']['delta']);
+    $assertSame(2, $events[3]['data']['output_tokens']);
+
+    $request = $transport->requests[0];
+    $assertSame('https://ai.latentkit.com/v1/chat', $request['url']);
+    $assertSame('text/event-stream', $request['headers']['Accept']);
+    $assertSame('unit', $request['headers']['X-LK-Tool-Slug']);
+    $assertSame(true, json_decode((string) $request['body'], true, 512, JSON_THROW_ON_ERROR)['stream']);
+});
+
+$test('a refused stream raises when it is requested, before any event', static function () use ($assertSame, $assertThrows): void {
+    $transport = new StreamingMockTransport();
+    $transport->pushStream(
+        ['{"error":{"code":"INSUFFICIENT_CREDITS","category":"billing",', '"request_id":"req_denied","retryable":false}}'],
+        402,
+    );
+    $client = new LatentKit(apiKey: 'lk_test', transport: $transport);
+
+    /** @var ApiException $error */
+    $error = $assertThrows(
+        ApiException::class,
+        static fn () => $client->chat->stream(messages: [['role' => 'user', 'content' => 'Hi']]),
+    );
+    $assertSame(402, $error->statusCode);
+    $assertSame('INSUFFICIENT_CREDITS', $error->apiCode);
+    $assertSame('req_denied', $error->requestId);
+    $assertSame(false, $error->retryable);
+});
+
+$test('a failure after the stream starts raises during iteration', static function () use ($assertSame): void {
+    $transport = new StreamingMockTransport();
+    $transport->pushStream([
+        "event: message.delta\ndata: {\"delta\":\"Hel\"}\n\n",
+        "event: error\ndata: {\"error\":{\"code\":\"PROVIDER_ERROR\",\"category\":\"provider\",\"request_id\":\"req_2\",\"retryable\":true}}\n\n",
+        "event: message.delta\ndata: {\"delta\":\"never read\"}\n\n",
+    ]);
+    $client = new LatentKit(apiKey: 'lk_test', transport: $transport);
+
+    $seen = [];
+    $error = null;
+    try {
+        foreach ($client->chat->stream(messages: [['role' => 'user', 'content' => 'Hi']]) as $event) {
+            $seen[] = $event['data']['delta'] ?? null;
+        }
+    } catch (ApiException $exception) {
+        $error = $exception;
+    }
+
+    $assertSame(['Hel'], $seen);
+    $assertSame('PROVIDER_ERROR', $error?->apiCode);
+    $assertSame('req_2', $error?->requestId);
+    $assertSame(true, $error?->retryable);
+    // The stream opened with HTTP 200, so an in-stream failure has no status of its own.
+    $assertSame(0, $error?->statusCode);
+});
+
+$test('streaming through a transport that cannot stream fails clearly', static function () use ($assertThrows): void {
+    $client = new LatentKit(apiKey: 'lk_test', transport: new MockTransport());
+    $assertThrows(
+        LatentKitException::class,
+        static fn () => $client->chat->stream(messages: [['role' => 'user', 'content' => 'Hi']]),
+    );
+});
+
+$test('the event parser handles comments, multi-line data, and a cut-off final event', static function () use ($assertSame): void {
+    $events = iterator_to_array(SseParser::parse([
+        ": keep-alive\n\n",
+        "data: first line\ndata: second line\n\n",
+        "event: named\ndata:no-space\n\n",
+        "event: ignored-without-data\n\n",
+        "event: last\ndata: {\"cut\":\"off\"}",
+    ]), false);
+
+    $assertSame(
+        [
+            ['event' => null, 'data' => "first line\nsecond line"],
+            ['event' => 'named', 'data' => 'no-space'],
+            ['event' => 'last', 'data' => '{"cut":"off"}'],
+        ],
+        $events,
+    );
+});
+
+$test('speech and transcription map to canonical request bodies', static function () use (
+    $assertSame,
+    $assertThrows,
+    $jsonResponse,
+): void {
+    $transport = new MockTransport();
+    $transport->push($jsonResponse(['content_blocks' => [['type' => 'output_audio', 'base64' => 'QUJD', 'media_type' => 'audio/mpeg']]]));
+    $transport->push($jsonResponse(['content' => 'hello world', 'language' => 'en']));
+    $transport->push($jsonResponse(['content' => 'from a url']));
+    $client = new LatentKit(apiKey: 'lk_test', transport: $transport);
+
+    $speech = $client->speech->create(input: 'Hello', voice: 'alloy', responseFormat: 'mp3', speed: 1.25);
+    $assertSame('QUJD', $speech['content_blocks'][0]['base64']);
+    $assertSame('https://ai.latentkit.com/v1/speech', $transport->requests[0]['url']);
+    $assertSame(
+        ['input' => 'Hello', 'voice' => 'alloy', 'response_format' => 'mp3', 'speed' => 1.25],
+        json_decode((string) $transport->requests[0]['body'], true, 512, JSON_THROW_ON_ERROR),
+    );
+
+    $transcript = $client->transcription->create(
+        audioBase64: 'UklGRg==',
+        mediaType: 'audio/wav',
+        filename: 'note.wav',
+        language: 'en',
+        prompt: 'LatentKit',
+    );
+    $assertSame('hello world', $transcript['content']);
+    $assertSame('https://ai.latentkit.com/v1/transcription', $transport->requests[1]['url']);
+    $assertSame(
+        [
+            'audio' => ['base64' => 'UklGRg==', 'media_type' => 'audio/wav', 'filename' => 'note.wav'],
+            'language' => 'en',
+            'prompt' => 'LatentKit',
+        ],
+        json_decode((string) $transport->requests[1]['body'], true, 512, JSON_THROW_ON_ERROR),
+    );
+
+    $client->transcription->create(audioUrl: 'https://example.com/a.mp3');
+    $assertSame(
+        ['audio' => ['url' => 'https://example.com/a.mp3']],
+        json_decode((string) $transport->requests[2]['body'], true, 512, JSON_THROW_ON_ERROR),
+    );
+
+    // Exactly one audio source, and no route control through either resource.
+    $assertThrows(InvalidArgumentException::class, static fn () => $client->transcription->create());
+    $assertThrows(
+        InvalidArgumentException::class,
+        static fn () => $client->transcription->create(audioBase64: 'UklGRg==', audioUrl: 'https://example.com/a.mp3'),
+    );
+    $assertThrows(
+        InvalidArgumentException::class,
+        static fn () => $client->speech->create(input: 'Hello', extraBody: ['model' => 'tts-1']),
+    );
+    $assertSame(3, count($transport->requests));
+});
+
+$test('me typed context exposes the capability snapshot and treats its absence as unknown', static function () use (
+    $assertSame,
+    $jsonResponse,
+): void {
+    $route = ['id' => 'policy-1', 'name' => 'Main', 'source' => 'assigned'];
+    $transport = new MockTransport();
+    $transport->push($jsonResponse([
+        'routing_contexts' => [['capability' => 'text', 'route' => 'Main', 'is_default' => true, 'purposes' => []]],
+        'capability_snapshot' => [
+            'version' => 1,
+            'generated_at' => '2026-11-18T16:00:00Z',
+            'operations' => [
+                'chat' => [
+                    'available' => true,
+                    'route' => $route,
+                    'models' => [],
+                    'features' => [
+                        'tools' => ['available' => true],
+                        'json_schema' => ['available' => false, 'reason' => 'no_eligible_model', 'missing' => ['json_schema']],
+                    ],
+                ],
+                'embeddings' => [
+                    'available' => true,
+                    'route' => $route,
+                    'space' => ['id' => '9f2c41d0a7b3e685', 'model_id' => 'text-embedding-3-small', 'dimensions' => 1536],
+                ],
+                'speech' => ['available' => false, 'route' => $route, 'reason' => 'connection_disabled', 'models' => []],
+            ],
+        ],
+    ]));
+    $transport->push($jsonResponse(['capability_snapshot' => null]));
+    $transport->push($jsonResponse(['app' => ['id' => 'app-1']]));
+    $client = new LatentKit(apiKey: 'lk_test', transport: $transport);
+
+    $context = $client->me->retrieveContext();
+    $snapshot = $context->capabilitySnapshot;
+    $assertSame(1, $snapshot?->version);
+    $assertSame('2026-11-18T16:00:00Z', $snapshot?->generatedAt);
+    $assertSame(true, $snapshot?->isAvailable('chat'));
+    $assertSame(true, $snapshot?->hasChatFeature('tools'));
+    $assertSame(false, $snapshot?->hasChatFeature('json_schema'));
+    $assertSame('no_eligible_model', $snapshot?->reason('chat', 'json_schema'));
+    $assertSame(false, $snapshot?->hasChatFeature('vision'));
+    $assertSame(false, $snapshot?->isAvailable('speech'));
+    $assertSame('connection_disabled', $snapshot?->reason('speech'));
+    $assertSame(false, $snapshot?->isAvailable('video'));
+    $assertSame(1536, $snapshot?->embeddingSpace()['dimensions'] ?? null);
+    $assertSame('Main', $context->routingContexts[0]['route']);
+
+    // Undetermined, and a gateway that predates the snapshot: unknown, not "nothing".
+    $assertSame(null, $client->me->retrieveContext()->capabilitySnapshot);
+    $older = $client->me->retrieveContext();
+    $assertSame(null, $older->capabilitySnapshot);
+    $assertSame([], $older->routingContexts);
 });
 
 $failures = 0;
