@@ -4,7 +4,7 @@ All notable changes to the LatentKit PHP SDK will be documented in this file.
 
 The project follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.0-beta.4 - 2026-11-18
 
 ### Added
 
