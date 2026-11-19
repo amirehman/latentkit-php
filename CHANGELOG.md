@@ -4,7 +4,7 @@ All notable changes to the LatentKit PHP SDK will be documented in this file.
 
 The project follows [Semantic Versioning](https://semver.org/).
 
-## 0.1.0-beta.5 - Unreleased
+## 0.1.0-beta.5 - 2026-11-19
 
 Needs a gateway that reports `capability_snapshot` in `GET /v1/me` for the
 snapshot fields; every other addition works with any gateway.
